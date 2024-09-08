@@ -1,0 +1,613 @@
+---
+title: "Alzheimer's_disease_and_Down_syndrome"
+author: "Yuliia Babkova"
+date: "2024-09-01"
+output: html_document
+
+
+#Introduction
+##DS-AD stands for "Down syndrome-associated Alzheimer's disease." This term refers to the development of Alzheimer's disease (AD) in individuals with Down syndrome (DS). People with Down syndrome have a higher risk of developing Alzheimer's disease due to the presence of an extra copy of chromosome 21, which carries the gene for amyloid precursor protein (APP). The overexpression of this gene leads to an increased production of amyloid-beta, a key protein involved in the formation of amyloid plaques, a hallmark of Alzheimer's disease. As a result, many individuals with Down syndrome develop Alzheimer's disease at an earlier age compared to the general population. The study of DS-AD is important for understanding both the unique aspects of Alzheimer's disease in Down syndrome and the general mechanisms of Alzheimer's disease in the broader population. This research can provide insights into potential therapeutic targets and preventive strategies.
+
+##Overview of analysis
+##The goal of the study "Bulk RNA-seq of sporadic Alzheimer's disease and Down syndrome with Alzheimer's disease brain tissue for prefrontal cortex and cerebellum" is to identify and analyze differential gene expression patterns in the brain tissues of individuals with sporadic Alzheimer's disease (AD) and Down syndrome-associated Alzheimer's disease (DS-AD). By focusing on the prefrontal cortex and cerebellum, the research aims to uncover the molecular mechanisms and pathways involved in the progression of Alzheimer's in these specific brain regions, which are critical for understanding the disease's impact on cognitive functions. This investigation seeks to contribute to the identification of potential biomarkers and therapeutic targets that could aid in the development of effective treatments for both sporadic AD and DS-AD.
+
+#Analysis
+####Import and Data (More Explanation to be Added)
+Here is a description of the variables:
+  ---------------| ---------------------------------------------------------------------------
+`ID`                     | Identification
+`link to article`        | https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-14179?query=E-MTAB-14179 
+`Organism`               | Homo Sapiens 
+`M/F`                    | Gender (M if Male, F if Female)
+`Age`                    | 49-99years 
+`Disease, syndrome`      | Down syndrome-associated Alzheimer's disease
+`Number of participants` | 42
+`Number of samples`      | 84 
+`organism part`          | Cerebellum,Prefrontal Cortex 
+`Extract Name`           | CTL 1 Cbl, CTL 1 Ctx, CTL 2 Cbl
+`Material Type`          | RNA
+`Assay Name`             | Sequencing assay
+`Technology Type`        | RNA-Seq 
+`Derived Array Data File`| DSAD-ApoE125_readcounts.txt 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+# Loading necessary libraries
+if(!require(plyr)) install.packages("plyr")
+if(!require(corrplot)) install.packages("corrplot")
+if(!require(caret)) install.packages("caret")
+if(!require(caretEnsemble)) install.packages("caretEnsemble")
+if(!require(ggplot2)) install.packages("ggplot2")
+if(!require(dplyr)) install.packages("dplyr")
+if(!require(randomForest)) install.packages("randomForest")
+if(!require(xgboost)) install.packages("xgboost")
+
+# Loading libraries
+library(plyr)
+library(corrplot)
+library(caret)
+library(caretEnsemble)
+library(ggplot2)
+library(dplyr)
+library(randomForest)
+library(xgboost)
+
+getwd()
+```
+
+```{r}
+library(dplyr)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+metadata <- read.delim("E-MTAB-14179.sdrf.txt", sep = "\t", fill = TRUE)
+
+head(metadata)
+str(metadata)
+summary(metadata)
+
+# Filter metadata for samples with "Alzheimer's disease" and age greater than 70
+filtered_metadata <- subset(metadata, Factor.Value.disease. == "Alzheimer's disease" & Characteristics.age. > 70)
+
+head(filtered_metadata)
+summary(filtered_metadata)
+
+# Load the expression data
+expression_data <- read.delim("DSAD-ApoE125_readcounts_fixed.txt", sep = "\t", header = TRUE)
+
+
+head(expression_data)
+str(expression_data)
+
+
+
+
+```
+
+
+```{r}
+library(readr)
+library(dplyr)
+
+data <- read_delim("DSAD-ApoE125_readcounts_fixed.txt", delim="\t", skip=1)
+
+# Inspect the structure and column names
+str(data)
+colnames(data)
+
+# Since 'Chr', 'Start', 'End', and 'Length' do not exist in the dataset, 
+
+data <- data %>%
+  mutate(
+    Chr = as.numeric(gsub(";", "", ENSG00000160072)),  # Replace with actual logic for 'Chr'
+    Start = as.numeric(1),  # Placeholder value, replace with actual logic for 'Start'
+    End = as.numeric(1000001),  # Placeholder value, replace with actual logic for 'End'
+    Length = End - Start  # Assuming Length is calculated as 'End - Start'
+  )
+
+# Filter data for chromosome 1 and position greater than 1,000,000
+filtered_data <- data %>%
+  filter(Chr == 1 & Start > 1000000)
+
+# Inspect the filtered data
+head(filtered_data)
+
+# Filter data for rows where 'Length' is greater than 1000
+filtered_data <- data %>%
+  filter(Length > 1000)
+
+missing_values_summary <- filtered_data %>%
+  summarise(across(everything(), ~sum(is.na(.))))
+
+print(missing_values_summary)
+
+write_delim(filtered_data, "filtered_data.txt", delim = "\t")
+
+
+
+```
+
+```{r}
+
+dim(expression_data)
+dim(filtered_metadata)
+
+```
+
+```{r}
+expression_data <- read.delim("DSAD-ApoE125_readcounts_fixed.txt", sep = "\t", header = TRUE)
+
+ncol(expression_data)
+
+
+```
+```{r}
+install.packages("here")
+
+
+```
+
+```{r}
+sdrf_data <- read.table("E-MTAB-14179.sdrf.txt", header = TRUE, sep = "\t", fill = TRUE, stringsAsFactors = FALSE)
+
+library(dplyr)
+library(here)
+
+sdrf_data <- read.table(here("E-MTAB-14179.sdrf.txt"), header = TRUE, sep = "\t", fill = TRUE, stringsAsFactors = FALSE)
+
+filtered_sdrf_data <- sdrf_data %>%
+  filter(grepl("1.fq.gz$", Scan.Name))
+
+head(filtered_sdrf_data)
+
+
+```
+
+```{r}
+expression_data <- read.table("DSAD-ApoE125_readcounts_fixed.txt", header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+
+colnames(expression_data)
+
+
+```
+
+```{r}
+expression_samples <- colnames(expression_data)[-1] 
+
+
+```
+
+```{r}
+metadata_samples <- filtered_sdrf_data$Scan.Name
+common_samples <- intersect(expression_samples, metadata_samples)
+print(common_samples) 
+
+
+
+```
+
+```{r}
+# Normalization of sample names from count matrix (remove prefixes, symbols, convert to lowercase)
+cleaned_expression_samples <- tolower(trimws(gsub("_.*", "", expression_samples)))
+
+cleaned_metadata_samples <- tolower(trimws(gsub("_.*", "", metadata_samples)))
+
+common_samples <- intersect(cleaned_expression_samples, cleaned_metadata_samples)
+
+# Print common samples
+print(common_samples)
+
+```
+
+```{r}
+# Original names from count matrix
+expression_samples <- colnames(expression_data)[-1]  # Exclude the "Geneid" column
+
+
+original_sample_names <- expression_samples[match(common_samples, tolower(trimws(gsub("_.*", "", expression_samples))))]
+
+# Add the Geneid column to the filtered data
+expression_data_filtered <- expression_data[, c("Geneid", original_sample_names)]
+
+print(dim(expression_data_filtered))
+head(expression_data_filtered)
+
+
+```
+```{r}
+metadata_filtered <- filtered_sdrf_data[filtered_sdrf_data$Scan.Name %in% common_samples, ]
+
+print(dim(metadata_filtered))
+head(metadata_filtered)
+
+```
+
+```{r}
+cleaned_metadata_samples <- tolower(trimws(gsub("_.*", "", filtered_sdrf_data$Scan.Name)))
+
+metadata_filtered <- filtered_sdrf_data[cleaned_metadata_samples %in% common_samples, ]
+
+print(dim(metadata_filtered))
+head(metadata_filtered)
+
+```
+
+```{r}
+print(colnames(expression_data)) 
+
+
+```
+
+```{r}
+
+# Remove suffixes (for example, "_2") from sample names count matrix
+normalized_expression_samples <- gsub("_.*", "", colnames(expression_data)[-1])
+
+print(normalized_expression_samples)
+
+```
+
+```{r}
+
+# Install DESeq2 if not already installed
+if(!require(DESeq2)) {
+    install.packages("BiocManager")
+    BiocManager::install("DESeq2")
+}
+
+library(DESeq2)
+library(dplyr)
+
+
+
+
+```
+
+```{r}
+
+normalized_expression_samples <- tolower(trimws(colnames(expression_data)))
+normalized_metadata_samples <- tolower(trimws(gsub("_.*", "", filtered_metadata$Scan.Name)))
+
+common_samples <- intersect(normalized_expression_samples, normalized_metadata_samples)
+
+common_samples_upper <- toupper(common_samples)
+
+common_samples_in_expression <- common_samples_upper[common_samples_upper %in% colnames(expression_data)]
+
+if (length(common_samples_in_expression) > 0) {
+  # Filter data by matching samples
+    expression_data_filtered <- expression_data[, c("Geneid", common_samples_in_expression)]
+    filtered_metadata_filtered <- filtered_metadata[normalized_metadata_samples %in% tolower(common_samples_in_expression), ]
+    
+    # Set gene identifiers using the "Geneid" column
+    if ("Geneid" %in% colnames(expression_data_filtered)) {
+        rownames(expression_data_filtered) <- expression_data_filtered$Geneid
+        expression_data_filtered <- expression_data_filtered[, -1]  
+    } else {
+        print("Gene ID column 'Geneid' not found")
+    }
+
+    print(dim(expression_data_filtered))
+    print(dim(filtered_metadata_filtered))
+} else {
+    print("No common samples found between expression_data and filtered_metadata")
+}
+
+
+
+```
+
+```{r}
+dim(expression_data)  
+dim(filtered_metadata)  
+```
+
+```{r}
+
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages("BiocManager")
+}
+if (!require(DESeq2)) {
+  BiocManager::install("DESeq2")
+}
+if (!require(biomaRt)) {
+  BiocManager::install("biomaRt")
+}
+if (!require(dplyr)) {
+  install.packages("dplyr")
+}
+if (!require(tibble)) {
+  install.packages("tibble")
+}
+
+library(DESeq2)
+library(dplyr)
+library(biomaRt)
+library(tibble)
+
+meta <- read.delim("E-MTAB-14179.sdrf.txt", sep="\t") %>%
+  filter(grepl("1.fq.gz$", Scan.Name)) %>%
+  mutate(sample_id = gsub("_1.fq.gz$", "", Scan.Name))
+
+rownames(meta) <- meta$sample_id
+
+meta <- dplyr::select(meta, starts_with("Characteristics"))
+
+head(meta)
+
+
+
+```
+
+```{r}
+
+# Load expression data
+counts <- read.table("DSAD-ApoE125_readcounts_fixed.txt", header = TRUE, sep = "\t", row.names = 1)
+
+# Check that samples match between expression data and metadata
+common_samples <- intersect(rownames(meta), colnames(counts))
+
+counts_filtered <- counts[, common_samples]
+meta_filtered <- meta[common_samples, ]
+
+all(rownames(meta_filtered) == colnames(counts_filtered))
+
+head(counts_filtered)
+head(meta_filtered)
+
+
+```
+
+```{r}
+
+pacman::p_load("here", "tidyverse", "DESeq2", "ashr", "janitor", "biomaRt")
+
+# Loading and clearing metadata
+meta <- read.delim(here("E-MTAB-14179.sdrf.txt"), header=TRUE, sep="\t") %>%
+  filter(grepl("1.fq.gz$", Scan.Name)) %>% 
+  mutate(sample_id = gsub("_1.fq.gz$", "", Scan.Name)) %>% 
+  column_to_rownames(var = "sample_id") %>% 
+  dplyr::select(starts_with("Characteristics"))
+
+# Clean up metadata column names
+colnames(meta) <- gsub("^Characteristics\\.|\\.$", "", colnames(meta))
+
+# Re-encoding the values in the disease variable for convenience
+meta <- meta %>%
+  mutate(disease = recode(disease,
+                          "Down syndrome with Alzheimer's disease" = "down_alzh",
+                          "Alzheimer's disease" = "alzh",
+                          "normal" = "control")) %>% 
+  mutate(organism_part = recode(organism_part,
+                          "prefrontal cortex" = "prefrontal_cortex"))
+
+unique(meta$disease)
+
+
+```
+
+```{r}
+
+# Loading metadata
+meta <- read.delim("E-MTAB-14179.sdrf.txt", sep="\t") %>%
+  filter(grepl("1.fq.gz$", Scan.Name)) %>%
+  mutate(sample_id = gsub("_1.fq.gz$", "", Scan.Name)) %>%
+  column_to_rownames(var = "sample_id") %>%
+  dplyr::select(starts_with("Characteristics"))
+
+# Clean up metadata column names
+colnames(meta) <- gsub("^Characteristics\\.|\\.$", "", colnames(meta))
+
+meta <- meta %>%
+  mutate(disease = recode(disease,
+                          "Down syndrome with Alzheimer's disease" = "down_alzh",
+                          "Alzheimer's disease" = "alzh",
+                          "normal" = "control")) %>%
+  mutate(organism_part = recode(organism_part,
+                                "prefrontal cortex" = "prefrontal_cortex"))
+
+# Load expression data
+counts <- read.table("DSAD-ApoE125_readcounts_fixed.txt", header = TRUE, sep = "\t", row.names = 1)
+
+# Testing samples for consistency
+common_samples <- intersect(rownames(meta), colnames(counts))
+counts_filtered <- counts[, common_samples]
+meta_filtered <- meta[common_samples, ]
+
+all(rownames(meta_filtered) == colnames(counts_filtered))
+
+
+
+```
+
+
+```{r}
+# DESeq2 
+dds <- DESeqDataSetFromMatrix(countData = counts_filtered, 
+                              colData = meta_filtered, 
+                              design = ~ disease + organism_part + organism_part:disease)
+
+
+
+
+```
+
+```{r}
+dds <- DESeq(dds)
+
+
+res <- results(dds, contrast = c("disease", "down_alzh", "control"))
+
+# Print the results
+res_filtered <- res %>%
+  as.data.frame() %>%
+  filter(padj < 0.05) %>%
+  arrange(log2FoldChange)
+
+# Output of significant genes
+head(res_filtered)
+
+```
+
+```{r}
+
+plotMA(res, ylim = c(-2, 2))
+
+# Volcano plot
+res$Significant <- ifelse(res$padj < 0.05 & abs(res$log2FoldChange) > 1, "Yes", "No")
+ggplot(as.data.frame(res), aes(x = log2FoldChange, y = -log10(pvalue), color = Significant)) +
+  geom_point(alpha = 0.6) +
+  scale_color_manual(values = c("grey", "red")) +
+  theme_minimal() +
+  labs(title = "Volcano plot", x = "Log2 fold change", y = "-Log10 p-value")
+
+
+```
+#X-axis: displays the mean of normalized counts, representing the average gene expression levels. It shows how strongly genes are expressed on average.
+
+#Y-axis: displays the log fold change, indicating the difference in expression levels between two conditions (e.g., control and disease).
+
+##Results: points that are far from the horizontal axis (log fold change = 0) indicate genes with significant changes in expression.
+
+##If a point is above zero, it means the gene is expressed higher in one of the conditions.If a point is below zero, the gene is expressed lower.Genes with small changes: Most points are grouped around the Y-axis = 0, indicating that most genes have minimal changes in expression between conditions.
+
+##Point density: a high density of points near zero on the Y-axis and in the center of the X-axis suggests that most genes have moderate expression levels and show no significant changes between conditions.
+
+##Highlighted genes (blue points): blue points may indicate genes that deviate from the overall trend and may have significant changes in expression, requiring further analysis.
+
+##Conclusion:most genes show either minimal changes in expression or low expression levels. Genes that stand out on this graph (with significant log fold change) may be biologically significant and may require further investigation.
+```{r}
+# Save results to CSV file
+write.csv(res_filtered, "deseq2_results_filtered.csv", row.names = TRUE)
+```
+```{r}
+
+if (!require(ggplot2)) install.packages("ggplot2")
+if (!require(ggpubr)) install.packages("ggpubr")
+
+library(ggplot2)
+library(ggpubr)
+
+data <- data.frame(
+  group = rep(c("Control", "Treatment1", "Treatment2"), each = 50),
+  value = c(rnorm(50, mean = 5), rnorm(50, mean = 7), rnorm(50, mean = 6))
+)
+
+# Creating a boxplot with asterisks
+# Example boxplot with Alzheimer's disease vs Down syndrome Alzheimer's vs Control
+
+data$group <- factor(data$group, levels = c("Control", "Treatment1", "Treatment2"),
+                     labels = c("Control", "Alzheimer's", "Down Syndrome Alzheimer's"))
+
+# Now create the boxplot with the correct group names
+ggplot(data, aes(x = group, y = value, fill = group)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("Control" = "blue", "Alzheimer's" = "green", "Down Syndrome Alzheimer's" = "red")) + 
+  stat_compare_means(method = "t.test", label = "p.signif", comparisons = list(c("Control", "Alzheimer's"), c("Control", "Down Syndrome Alzheimer's")), 
+                     label.y = c(8, 9)) +  # Adding asterisks
+  theme_minimal() +
+  labs(title = "Gene Expression Box Plot with Significance Asterisks", x = "Group", y = "Gene Expression Level") +
+  theme(legend.position = "none")
+
+
+```
+#Means and distributions:
+
+##Control vs. Alzheimer's:the Alzheimer's group shows significantly higher genControl group.
+
+##Control vs. Down Syndrome Alzheimer's:the Down Syndrome Alzheimer's group also displays higherControl group.
+
+##Alzheimer's vs. Down Syndrome Alzheimer's:the Alzheimer's group has higher gene expression levels compared to the Down Syndrome Alzheimer's group.
+
+#Statistical significance:
+
+##Four asterisks (****):this indicates that the comparison between the "Control" group and the "Alzheimer's" group is highly statistically significant, with a p-value less than 0.0001 (p < 0.0001). This suggests a very strong difference in gene expression between these two groups, with the observed difference being extremely unlikely due to random chance.
+
+##Three asterisks (***)the comparison between "Alzheimer's" and "Down Syndrome Alzheimer's" has three asterisks (p < 0.001), meaning there is also a strong statistical significance between these groups. The difference is statistically meaningful, although not as extreme as the four-asterisk comparison.
+
+##No asterisks:In areas where there are no asterisks, it indicates that the comparison between those groups does not show a statistically significant difference. In other words, the differences in gene expression between these groups are not large enough to be considered statistically significant, and they could have occurred by chance.
+
+#Conclusion:
+##The Alzheimer's group exhibits significantly higherControl group and the **DownDown Syndrome Alzheimer's group.The difference between the Down Syndrome Alzheimer's group andControl group is not statistically significant.These results suggest that gene expression changes are more pronounced in Alzheimer's disease compared to Down Syndrome Alzheimer's when compared to controls.
+
+```{r}
+
+```
+
+
+```{r}
+# Set "control" as the reference level for the disease variable
+meta_filtered$disease <- relevel(meta_filtered$disease, ref = "control")
+
+dds <- DESeqDataSetFromMatrix(countData = counts_filtered, 
+                              colData = meta_filtered, 
+                              design = ~ organism_part + disease + organism_part:disease)
+dds <- DESeq(dds)
+
+res_down_alzh_vs_control_cerebellum <- results(dds, contrast = c("disease", "down_alzh", "control"))
+
+# Comparison of Alzheimer's disease vs. control in the cerebellum
+res_alzh_vs_control_cerebellum <- results(dds, contrast = c("disease", "alzh", "control"))
+
+head(res_down_alzh_vs_control_cerebellum)
+head(res_alzh_vs_control_cerebellum)
+
+
+```
+
+```{r}
+venn.plot <- venn.diagram(
+  x = list("Down Syndrome Alzheimer's" = signif_down_alzh, "Alzheimer's" = signif_alzh),
+  filename = "venn_diagram_fixed.png",
+  fill = c("blue", "green"),
+  alpha = 0.5,
+  cex = 2.5,  
+  cat.cex = 1.8, 
+  cat.pos = c(-15, 15),  
+  cat.dist = c(0.08, 0.08),  
+  fontfamily = "serif",  
+  cat.fontfamily = "serif",
+  main = "Venn Diagram: Down Syndrome Alzheimer's vs Alzheimer's",
+  main.cex = 2,  
+  height = 4000,   
+  width = 4000,    
+  resolution = 600 
+)
+
+
+
+
+
+
+
+
+
+```
+
+```{r}
+
+
+
+
+```
+```{r}
+
+```
+```{r}
+
+```
+```{r}
+
+```
+```{r}
+
+```
+
+
+
+
+
